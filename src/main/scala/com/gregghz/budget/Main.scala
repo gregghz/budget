@@ -12,9 +12,9 @@ object Main extends IOApp.Simple {
   val run = HttpClientCatsBackend.resource[IO]().use { backend =>
     val client = YnabClient(backend)
 
-    client.getBudget("12").map { data =>
+    client.getTransactions("2ceaf4e4-6da9-4761-ac79-bf6ba66c9060", Seq("uncategorized")).map { data =>
+      data.foreach(pprint.log(_))
       pprint.log(data)  
-      data
     }
   }
 }

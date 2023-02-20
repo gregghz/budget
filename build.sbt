@@ -13,7 +13,9 @@ lazy val root = (project in file("."))
       "com.softwaremill.sttp.client3" %% "core" % "3.8.11",
       "com.softwaremill.sttp.client3" %% "circe" % "3.8.11",
       "com.softwaremill.sttp.client3" %% "cats" % "3.8.11",
-      "com.lihaoyi" %% "pprint" % "0.7.0"
+      "com.lihaoyi" %% "pprint" % "0.7.0",
+      "com.softwaremill.sttp.client3" %% "slf4j-backend" % "3.8.11",
+      "org.slf4j" % "slf4j-simple" % "2.0.6",
     ),
     libraryDependencies ++= Seq(
       "io.circe" %% "circe-core",

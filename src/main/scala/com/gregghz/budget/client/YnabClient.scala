@@ -8,31 +8,62 @@ import sttp.client3._
 import sttp.client3.circe._
 import io.circe._
 import io.circe.generic.semiauto._
+import sttp.client3.logging.slf4j.Slf4jLoggingBackend
+import sttp.client3.logging.LogLevel
 
 case class YnabResponse[A](
-  data: A
+    data: A
 )
 
 object YnabResponse {
-  implicit def decoder[A: Decoder]: Decoder[YnabResponse[A]] = deriveDecoder[YnabResponse[A]]
+  implicit def decoder[A: Decoder]: Decoder[YnabResponse[A]] =
+    deriveDecoder[YnabResponse[A]]
 }
 
-class YnabClient[F[_]](backend: SttpBackend[F, WebSockets]) {
-  val baseHost = uri"https://api.youneedabudget.com/v1" 
-  val rootRequest = basicRequest.header("Authorization: Bearer HI2EU6Dn8z-Fi94wr_cppMm8LTrQerwwVGQa9kmnuQs")
+class YnabClient[F[_]](_backend: SttpBackend[F, WebSockets]) {
+  val baseHost = uri"https://api.youneedabudget.com/v1"
+  val rootRequest = basicRequest.header(
+    "Authorization",
+    "Bearer blah"
+  )
 
-  extension [A](response: F[Response[Either[ResponseException[String, Error], YnabResponse[A]]]]) {
+  private val backend = Slf4jLoggingBackend(
+    _backend,
+    logResponseBody = true,
+    logRequestHeaders = true,
+    sensitiveHeaders = Set.empty,
+    beforeRequestSendLogLevel = LogLevel.Info
+  )
+
+  extension [A](
+      response: F[
+        Response[Either[ResponseException[String, Error], YnabResponse[A]]]
+      ]
+  ) {
     def data(using F: Async[F]): F[A] = {
-      response.flatMap(_.body.fold(
-        F.raiseError,
-        value => F.pure(value.data)
-      ))
+      response.flatMap(
+        _.body.fold(
+          F.raiseError,
+          value => F.pure(value.data)
+        )
+      )
     }
   }
 
   def getBudget(budgetId: String)(using F: Async[F]): F[BudgetDetail] = {
-    val req = rootRequest.get(uri"$baseHost/budgets/$budgetId").response(asJson[YnabResponse[BudgetDetail]])
+    val req = rootRequest.get(
+      uri"$baseHost/budgets/$budgetId"
+    ).response(asJson[YnabResponse[BudgetDetail]])
     val response = req.send(backend)
     response.data
+  }
+
+  def getTransactions(budgetId: String, filters: Iterable[String])(using F: Async[F]): F[List[Transaction]] = {
+    val query = filters.map(f => s"type=$f").mkString("&")
+    val req = rootRequest.get(
+      uri"$baseHost/budgets/$budgetId/transactions?$query"
+    ).response(asJson[YnabResponse[Transactions]])
+    val response = req.send(backend)
+    response.data.map(_.transactions)
   }
 }

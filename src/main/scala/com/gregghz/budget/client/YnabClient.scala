@@ -66,4 +66,28 @@ class YnabClient[F[_]](_backend: SttpBackend[F, WebSockets]) {
     val response = req.send(backend)
     response.data.map(_.transactions)
   }
+
+  def importTransactions(budgetId: String)(using F: Async[F]): F[ImportResult] = {
+    val req = rootRequest.post(
+      uri"$baseHost/budgets/$budgetId/transactions/import"
+    ).response(asJson[YnabResponse[ImportResult]])
+    val response = req.send(backend)
+    response.data
+  }
+
+  def updateTransactions(budgetId: String, transactions: List[PatchTransaction])(using F: Async[F]): F[Json] = {
+    val req = rootRequest.patch(
+      uri"$baseHost/budgets/$budgetId/transactions"
+    ).body(PatchTransactions(transactions)).response(asJson[YnabResponse[Json]])
+    val response = req.send(backend)
+    response.data
+  }
+
+  def getCategories(budgetId: String)(using F: Async[F]): F[List[CategoryGroup]] = {
+    val req = rootRequest.get(
+      uri"$baseHost/budgets/$budgetId/categories"
+    ).response(asJson[YnabResponse[Categories]])
+    val response = req.send(backend)
+    response.data.map(_.category_groups)
+  }
 }

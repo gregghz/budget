@@ -24,24 +24,48 @@ object Main extends IOApp {
 
     val task = args match {
       case "categorize" :: _ => categorize(client) 
-      case "report" :: term :: _ => report(client, term)
+      case "report" :: "week" :: _ => weekReport(client)
+      case "report" :: "month" :: _ => monthReport(client)
       case _ => IO.raiseError(new Exception("Unknown command") with NoStackTrace)
     } 
 
     task.map(_ => ExitCode.Success)
   }
 
-  private def report(client: YnabClient[IO], term: String): IO[Unit] = {
-    val now = LocalDate.now()
-    val startDate = term match {
-      case "month" => 
-        now.withDayOfMonth(1)
-      case "week" => 
-        val fieldUS = WeekFields.of(Locale.US).dayOfWeek()
-        val sunday = now.`with`(fieldUS, 1)
-        if (sunday == now) sunday.minusWeeks(1) else sunday
-      case _ => throw new Exception("Unknown term") with NoStackTrace
+  private def monthReport(client: YnabClient[IO]): IO[Unit] = {
+    val startDate = LocalDate.now().withDayOfMonth(1)
+
+    for {
+      transactions <- client.getTransactions(
+        "2ceaf4e4-6da9-4761-ac79-bf6ba66c9060",
+        Seq("approved"),
+        Some(startDate),
+      )
+      accounts <- client.getAccounts("2ceaf4e4-6da9-4761-ac79-bf6ba66c9060")
+      months <- client.getMonths("2ceaf4e4-6da9-4761-ac79-bf6ba66c9060")
+    } yield {
+      val currentMonth = months.find(_.month.getMonth().getValue() === now.getMonthValue)
+      pprint.log(currentMonth)
+
+      // header
+      println("Income,Expense,Net Income")
+
+      transactions.groupBy(_.category_name).foreach { case (Some(category), transactions) =>
+        val amount = transactions.map(_.amount).sum / 1000.0
+        val prefix = if (amount < 0) "-$" else "$"
+        val absAmount = math.abs(amount)
+        val amountStr = f"$prefix$absAmount%1.2f"
+
+        println(f"$category%-30s $amountStr")
+      }
     }
+  }
+
+  private def weekReport(client: YnabClient[IO]): IO[Unit] = {
+    val now = LocalDate.now()
+    val fieldUS = WeekFields.of(Locale.US).dayOfWeek()
+    val sunday = now.`with`(fieldUS, 1)
+    val startDate = if (sunday == now) sunday.minusWeeks(1) else sunday
 
     for {
       transactions <- client.getTransactions(

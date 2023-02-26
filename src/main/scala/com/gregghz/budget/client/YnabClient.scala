@@ -94,4 +94,20 @@ class YnabClient[F[_]](_backend: SttpBackend[F, WebSockets]) {
     val response = req.send(backend)
     response.data.map(_.category_groups)
   }
+
+  def getAccounts(budgetId: String)(using F: Async[F]): F[List[Account]] = {
+    val req = rootRequest.get(
+      uri"$baseHost/budgets/$budgetId/accounts"
+    ).response(asJson[YnabResponse[Accounts]])
+    val response = req.send(backend)
+    response.data.map(_.accounts)
+  }
+
+  def getMonths(budgetId: String)(using F: Async[F]): F[List[Month]] = {
+    val req = rootRequest.get(
+      uri"$baseHost/budgets/$budgetId/months"
+    ).response(asJson[YnabResponse[Months]])
+    val response = req.send(backend)
+    response.data.map(_.months)
+  }
 }

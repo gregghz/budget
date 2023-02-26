@@ -10,6 +10,8 @@ import io.circe._
 import io.circe.generic.semiauto._
 import sttp.client3.logging.slf4j.Slf4jLoggingBackend
 import sttp.client3.logging.LogLevel
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 case class YnabResponse[A](
     data: A
@@ -58,10 +60,12 @@ class YnabClient[F[_]](_backend: SttpBackend[F, WebSockets]) {
     response.data
   }
 
-  def getTransactions(budgetId: String, filters: Iterable[String])(using F: Async[F]): F[List[Transaction]] = {
-    val query = filters.map(f => s"type=$f").mkString("&")
+  private val fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
+  def getTransactions(budgetId: String, filters: Iterable[String], sinceDate: Option[LocalDate] = None)(using F: Async[F]): F[List[Transaction]] = {
+    val query = (filters.map(f => ("type" -> f)) ++ sinceDate.map(d => ("since_date" -> d.format(fmt)))).toList
     val req = rootRequest.get(
-      uri"$baseHost/budgets/$budgetId/transactions?$query"
+      uri"$baseHost/budgets/$budgetId/transactions".withParams(query: _*)
     ).response(asJson[YnabResponse[Transactions]])
     val response = req.send(backend)
     response.data.map(_.transactions)

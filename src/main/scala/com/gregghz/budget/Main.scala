@@ -1,22 +1,67 @@
 package com.gregghz.budget
 
 import cats.effect._
-import sttp.client3._
-import sttp.client3.httpclient.cats.HttpClientCatsBackend
-import java.time.OffsetDateTime
+import cats.implicits._
 import com.gregghz.budget.client._
 import com.gregghz.budget.model._
-import cats.implicits._
+import sttp.client3._
+import sttp.client3.httpclient.cats.HttpClientCatsBackend
+
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.temporal.WeekFields
+import java.util.Locale
 import scala.io.Source
 import scala.io.StdIn
 import scala.util.control.NoStackTrace
 
-object Main extends IOApp.Simple {
+object Main extends IOApp {
   val now = OffsetDateTime.now()
 
-  val run = HttpClientCatsBackend.resource[IO]().use { backend =>
+  def run(args: List[String]): IO[ExitCode] = HttpClientCatsBackend.resource[IO]().use { backend =>
     val client = YnabClient(backend)
 
+    val task = args match {
+      case "categorize" :: _ => categorize(client) 
+      case "report" :: term :: _ => report(client, term)
+      case _ => IO.raiseError(new Exception("Unknown command") with NoStackTrace)
+    } 
+
+    task.map(_ => ExitCode.Success)
+  }
+
+  private def report(client: YnabClient[IO], term: String): IO[Unit] = {
+    val now = LocalDate.now()
+    val startDate = term match {
+      case "month" => 
+        now.withDayOfMonth(1)
+      case "week" => 
+        val fieldUS = WeekFields.of(Locale.US).dayOfWeek()
+        val sunday = now.`with`(fieldUS, 1)
+        if (sunday == now) sunday.minusWeeks(1) else sunday
+      case _ => throw new Exception("Unknown term") with NoStackTrace
+    }
+
+    for {
+      transactions <- client.getTransactions(
+        "2ceaf4e4-6da9-4761-ac79-bf6ba66c9060",
+        Seq("approved"),
+        Some(startDate),
+      )
+    } yield {
+      transactions.groupBy(_.category_name).foreach { case (Some(category), transactions) =>
+        val amount = transactions.map(_.amount).sum / 1000.0
+        val prefix = if (amount < 0) "-$" else "$"
+        val absAmount = math.abs(amount)
+        val amountStr = f"$prefix$absAmount%1.2f"
+
+        println(show"$category,$amountStr")
+      }
+    }
+  }
+
+  private def categorize(client: YnabClient[IO]): IO[Unit] = {
     val updates = for {
       importResult <- client
         .importTransactions("2ceaf4e4-6da9-4761-ac79-bf6ba66c9060")
@@ -32,7 +77,6 @@ object Main extends IOApp.Simple {
       categories <- client.getCategories("2ceaf4e4-6da9-4761-ac79-bf6ba66c9060")
     } yield {
       val count = data.length
-
       if (count == 0) {
         println("No transactions found")
         Nil
@@ -62,7 +106,7 @@ object Main extends IOApp.Simple {
               //   "2ceaf4e4-6da9-4761-ac79-bf6ba66c9060",
               //   transaction.id
               // )
-              Some(PatchTransaction(transaction.id, true, None))
+              Some(PatchTransaction(transaction.id, true, transaction.category_id))
             case 's' =>
               None
             case 'c' =>
@@ -77,7 +121,7 @@ object Main extends IOApp.Simple {
                 case "" =>
                   None
                 case id =>
-                  Some(PatchTransaction(transaction.id, true, Some(id)))
+                  Some(PatchTransaction(transaction.id, true, Some(id.trim)))
               }
             case _ =>
               None
@@ -97,6 +141,7 @@ object Main extends IOApp.Simple {
     } yield {
       pprint.log(json)
       println("Done")
+      ExitCode.Success
     }
   }
 }

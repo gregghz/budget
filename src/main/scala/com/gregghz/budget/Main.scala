@@ -19,18 +19,22 @@ import scala.util.control.NoStackTrace
 object Main extends IOApp {
   val now = OffsetDateTime.now()
 
-  def run(args: List[String]): IO[ExitCode] = HttpClientCatsBackend.resource[IO]().use { backend =>
-    val client = YnabClient(backend)
+  def run(args: List[String]): IO[ExitCode] =
+    HttpClientCatsBackend.resource[IO]().use { backend =>
+      YnabClient.loadAuthentication[IO].flatMap { auth =>
+        val client = YnabClient(backend, auth)
 
-    val task = args match {
-      case "categorize" :: _ => categorize(client) 
-      case "report" :: "week" :: _ => weekReport(client)
-      case "report" :: "month" :: _ => monthReport(client)
-      case _ => IO.raiseError(new Exception("Unknown command") with NoStackTrace)
-    } 
+        val task = args match {
+          case "categorize" :: _        => categorize(client)
+          case "report" :: "week" :: _  => weekReport(client)
+          case "report" :: "month" :: _ => monthReport(client)
+          case _ =>
+            IO.raiseError(new Exception("Unknown command") with NoStackTrace)
+        }
 
-    task.map(_ => ExitCode.Success)
-  }
+        task.map(_ => ExitCode.Success)
+      }
+    }
 
   private def monthReport(client: YnabClient[IO]): IO[Unit] = {
     val startDate = LocalDate.now().withDayOfMonth(1)
@@ -39,24 +43,26 @@ object Main extends IOApp {
       transactions <- client.getTransactions(
         "2ceaf4e4-6da9-4761-ac79-bf6ba66c9060",
         Seq("approved"),
-        Some(startDate),
+        Some(startDate)
       )
       accounts <- client.getAccounts("2ceaf4e4-6da9-4761-ac79-bf6ba66c9060")
       months <- client.getMonths("2ceaf4e4-6da9-4761-ac79-bf6ba66c9060")
     } yield {
-      val currentMonth = months.find(_.month.getMonth().getValue() === now.getMonthValue)
+      val currentMonth =
+        months.find(_.month.getMonth().getValue() === now.getMonthValue)
       pprint.log(currentMonth)
 
       // header
       println("Income,Expense,Net Income")
 
-      transactions.groupBy(_.category_name).foreach { case (Some(category), transactions) =>
-        val amount = transactions.map(_.amount).sum / 1000.0
-        val prefix = if (amount < 0) "-$" else "$"
-        val absAmount = math.abs(amount)
-        val amountStr = f"$prefix$absAmount%1.2f"
+      transactions.groupBy(_.category_name).foreach {
+        case (Some(category), transactions) =>
+          val amount = transactions.map(_.amount).sum / 1000.0
+          val prefix = if (amount < 0) "-$" else "$"
+          val absAmount = math.abs(amount)
+          val amountStr = f"$prefix$absAmount%1.2f"
 
-        println(f"$category%-30s $amountStr")
+          println(f"$category%-30s $amountStr")
       }
     }
   }
@@ -71,16 +77,17 @@ object Main extends IOApp {
       transactions <- client.getTransactions(
         "2ceaf4e4-6da9-4761-ac79-bf6ba66c9060",
         Seq("approved"),
-        Some(startDate),
+        Some(startDate)
       )
     } yield {
-      transactions.groupBy(_.category_name).foreach { case (Some(category), transactions) =>
-        val amount = transactions.map(_.amount).sum / 1000.0
-        val prefix = if (amount < 0) "-$" else "$"
-        val absAmount = math.abs(amount)
-        val amountStr = f"$prefix$absAmount%1.2f"
+      transactions.groupBy(_.category_name).foreach {
+        case (Some(category), transactions) =>
+          val amount = transactions.map(_.amount).sum / 1000.0
+          val prefix = if (amount < 0) "-$" else "$"
+          val absAmount = math.abs(amount)
+          val amountStr = f"$prefix$absAmount%1.2f"
 
-        println(show"$category,$amountStr")
+          println(show"$category,$amountStr")
       }
     }
   }
@@ -124,13 +131,12 @@ object Main extends IOApp {
                 .getOrElse("(unknown)")}"
           )
           print("(a)pprove, (s)kip, (c)ategorize: ")
+          Console.flush()
           StdIn.readChar() match {
             case 'a' =>
-              // client.approveTransaction(
-              //   "2ceaf4e4-6da9-4761-ac79-bf6ba66c9060",
-              //   transaction.id
-              // )
-              Some(PatchTransaction(transaction.id, true, transaction.category_id))
+              Some(
+                PatchTransaction(transaction.id, true, transaction.category_id)
+              )
             case 's' =>
               None
             case 'c' =>

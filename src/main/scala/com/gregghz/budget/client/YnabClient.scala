@@ -25,7 +25,31 @@ object YnabResponse {
     deriveDecoder[YnabResponse[A]]
 }
 
-class YnabClient[F[_]](_backend: SttpBackend[F, WebSockets], auth: YnabAuthentication) {
+trait YnabClient[F[_]] {
+  def getBudget(budgetId: String)(using F: Async[F]): F[BudgetDetail]
+  def getTransactions(
+      budgetId: String,
+      filters: Iterable[String],
+      sinceDate: Option[LocalDate] = None
+  )(using F: Async[F]): F[List[Transaction]]
+  def getAccounts(budgetId: String)(using F: Async[F]): F[List[Account]]
+  def getMonths(budgetId: String)(using F: Async[F]): F[List[Month]]
+  def importTransactions(
+      budgetId: String
+  )(using F: Async[F]): F[ImportResult]
+  def updateTransactions(
+      budgetId: String,
+      transactions: List[PatchTransaction]
+  )(using F: Async[F]): F[Json]
+  def getCategories(
+      budgetId: String
+  )(using F: Async[F]): F[List[CategoryGroup]]
+}
+
+class YnabClientImpl[F[_]](
+    _backend: SttpBackend[F, WebSockets],
+    auth: YnabAuthentication
+) extends YnabClient[F] {
   val baseHost = uri"https://api.youneedabudget.com/v1"
   val rootRequest = basicRequest.header(
     "Authorization",
@@ -144,12 +168,15 @@ class YnabClient[F[_]](_backend: SttpBackend[F, WebSockets], auth: YnabAuthentic
 }
 
 object YnabClient {
-  def loadAuthentication[F[_]](using F: ApplicativeError[F, Throwable]): F[YnabAuthentication] = {
+  def loadAuthentication[F[_]](using
+      F: ApplicativeError[F, Throwable]
+  ): F[YnabAuthentication] = {
     val token = sys.env.get("YNAB_TOKEN")
 
     token match {
       case Some(t) => YnabAuthentication(t).pure[F]
-      case None    => F.raiseError(new Exception("YNAB_TOKEN not set") with NoStackTrace)
+      case None =>
+        F.raiseError(new Exception("YNAB_TOKEN not set") with NoStackTrace)
     }
   }
 }

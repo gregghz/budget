@@ -22,12 +22,12 @@ object Main extends IOApp {
   def run(args: List[String]): IO[ExitCode] =
     HttpClientCatsBackend.resource[IO]().use { backend =>
       YnabClient.loadAuthentication[IO].flatMap { auth =>
-        val client = YnabClient(backend, auth)
+        val client = YnabClientImpl(backend, auth)
 
-        val task = args match {
+        val task: IO[Unit] = args match {
           case "categorize" :: _        => categorize(client)
-          case "report" :: "week" :: _  => weekReport(client)
-          case "report" :: "month" :: _ => monthReport(client)
+          case "report" :: "week" :: _  => weekReport(client).map(println)
+          case "report" :: "month" :: _ => monthReport(client).map(println)
           case _ =>
             IO.raiseError(new Exception("Unknown command") with NoStackTrace)
         }
@@ -36,7 +36,7 @@ object Main extends IOApp {
       }
     }
 
-  private def monthReport(client: YnabClient[IO]): IO[Unit] = {
+  private def monthReport(client: YnabClient[IO]): IO[String] = {
     val startDate = LocalDate.now().withDayOfMonth(1)
 
     for {
@@ -45,29 +45,25 @@ object Main extends IOApp {
         Seq("approved"),
         Some(startDate)
       )
-      accounts <- client.getAccounts("2ceaf4e4-6da9-4761-ac79-bf6ba66c9060")
-      months <- client.getMonths("2ceaf4e4-6da9-4761-ac79-bf6ba66c9060")
     } yield {
-      val currentMonth =
-        months.find(_.month.getMonth().getValue() === now.getMonthValue)
-      pprint.log(currentMonth)
+      transactions
+        .groupBy(_.category_name)
+        .map { case (categoryOpt, transactions) =>
+          val category = categoryOpt.getOrElse("Uncategorized")
+          val amount = transactions.map(_.amount).sum[Currency]
 
-      // header
-      println("Income,Expense,Net Income")
-
-      transactions.groupBy(_.category_name).foreach {
-        case (Some(category), transactions) =>
-          val amount = transactions.map(_.amount).sum / 1000.0
-          val prefix = if (amount < 0) "-$" else "$"
-          val absAmount = math.abs(amount)
-          val amountStr = f"$prefix$absAmount%1.2f"
-
-          println(f"$category%-30s $amountStr")
-      }
+          (category, amount)
+        }
+        .toList
+        .sortBy(_._2)
+        .map { case (cat, amount) =>
+          show"$cat,${amount.show}"
+        }
+        .mkString("\n")
     }
   }
 
-  private def weekReport(client: YnabClient[IO]): IO[Unit] = {
+  private[budget] def weekReport(client: YnabClient[IO]): IO[String] = {
     val now = LocalDate.now()
     val fieldUS = WeekFields.of(Locale.US).dayOfWeek()
     val sunday = now.`with`(fieldUS, 1)
@@ -80,15 +76,18 @@ object Main extends IOApp {
         Some(startDate)
       )
     } yield {
-      transactions.groupBy(_.category_name).foreach {
-        case (Some(category), transactions) =>
-          val amount = transactions.map(_.amount).sum / 1000.0
-          val prefix = if (amount < 0) "-$" else "$"
-          val absAmount = math.abs(amount)
-          val amountStr = f"$prefix$absAmount%1.2f"
+      transactions
+        .groupBy(_.category_name)
+        .map { case (categoryOpt, transactions) =>
+          val category = categoryOpt.getOrElse("Uncategorized")
+          val amount: Currency = transactions.map(_.amount).sum[Currency]
 
-          println(show"$category,$amountStr")
-      }
+          (category, amount)
+        }
+        .toList
+        .sortBy(_._2)
+        .map { case (cat, amount) => show"$cat,${amount.show}" }
+        .mkString("\n")
     }
   }
 
@@ -112,14 +111,12 @@ object Main extends IOApp {
         println("No transactions found")
         Nil
       } else {
+        val categoryGroups: List[CategoryGroup] = categories
+
         data.zipWithIndex.flatMap { case (transaction, index) =>
           val i = index + 1
 
-          val amount =
-            transaction.amount / 1000.0 // for some reason the amount is in milliunits
-          val prefix = if (amount < 0) "-$" else "$"
-          val absAmount = math.abs(amount)
-          val amountStr = f"$prefix$absAmount%1.2f"
+          val amountStr = transaction.amount.show
           val padding = " " * (8 - amountStr.length)
 
           val category =
@@ -140,8 +137,8 @@ object Main extends IOApp {
             case 's' =>
               None
             case 'c' =>
-              categories.foreach { category =>
-                println(show"${category.id}\t${category.name}")
+              categoryGroups.foreach { category =>
+                println(show"(${category.id})\t${category.name}")
                 category.categories.foreach { cat =>
                   println(show"\t${cat.id}\t${cat.name}")
                 }

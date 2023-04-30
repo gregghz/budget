@@ -6,7 +6,7 @@ import io.circe.generic.semiauto._
 final case class Transaction(
     id: String,
     date: String, // date
-    amount: Int,
+    amount: Currency,
     memo: Option[String],
     cleared: String, // enum
     approved: Boolean,

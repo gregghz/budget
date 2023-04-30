@@ -17,10 +17,11 @@ lazy val root = (project in file("."))
       "com.softwaremill.sttp.client3" %% "slf4j-backend" % "3.8.11",
       "org.slf4j" % "slf4j-simple" % "2.0.6",
       "com.olvind.tui" %% "tui" % "0.0.5",
+      "org.scalatest" %% "scalatest" % "3.2.15" % Test,
     ),
     libraryDependencies ++= Seq(
       "io.circe" %% "circe-core",
       "io.circe" %% "circe-generic",
-      "io.circe" %% "circe-parser"
+      "io.circe" %% "circe-parser",
     ).map(_ % circeVersion)
   )

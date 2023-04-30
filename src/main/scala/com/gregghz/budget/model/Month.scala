@@ -11,7 +11,7 @@ final case class Month(
   budgeted: Currency,
   activity: Currency,
   to_be_budgeted: Currency,
-  age_of_money: Currency,
+  age_of_money: Option[Int],
   deleted: Boolean,
 )
 

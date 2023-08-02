@@ -38,6 +38,6 @@ class MainSpec extends AnyFlatSpec with should.Matchers {
       )
     )
 
-    Main.weekReport(client).unsafeRunSync() should be("Uncategorized,$100.00")
+    Main.weekReport(client, 0).unsafeRunSync() should be("Uncategorized,$100.00")
   }
 }

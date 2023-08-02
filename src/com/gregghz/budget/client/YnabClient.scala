@@ -131,7 +131,10 @@ class YnabClientImpl[F[_]](
       .body(PatchTransactions(transactions))
       .response(asJson[YnabResponse[Json]])
     val response = req.send(backend)
-    response.data
+    response.data.handleErrorWith { error =>
+      pprint.log(transactions, "failed transactions")
+      F.raiseError(error)  
+    }
   }
 
   def getCategories(

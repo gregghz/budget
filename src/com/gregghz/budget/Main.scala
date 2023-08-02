@@ -15,29 +15,76 @@ import java.util.Locale
 import scala.io.Source
 import scala.io.StdIn
 import scala.util.control.NoStackTrace
+import com.monovore.decline._
+import com.monovore.decline.effect._
 
-object Main extends IOApp {
+sealed trait Command
+case class Categorize() extends Command
+case class Retry(upTo: Int) extends Command
+case class Report(reportType: ReportType, offset: Int) extends Command
+
+// final case class IOT[F[_]]
+
+object Main extends CommandIOApp("budget", "Budget shit", version = "0.0.1") {
   val now = OffsetDateTime.now()
 
-  def run(args: List[String]): IO[ExitCode] =
+  val reportCommand = Opts.subcommand("report", "Generate a report") {
+    val reportType = Opts.argument[ReportType]("reportType")
+    val offset = Opts.option[Int]("offset", "", short = "o").withDefault(0)
+    (reportType, offset).mapN(Report.apply)
+  }
+
+  val categorizeCommand = Opts.subcommand("categorize", "Categorize") {
+    Opts(Categorize())
+  }
+
+  val retryCommand = Opts.subcommand("retry", "Retry") {
+    val index = Opts.argument[Int]("index")
+    index.map(i => Opts(Retry(i)))
+  }
+
+  private def run(command: Command): IO[ExitCode] = {
     HttpClientCatsBackend.resource[IO]().use { backend =>
       YnabClient.loadAuthentication[IO].flatMap { auth =>
         val client = YnabClientImpl(backend, auth)
 
-        val task: IO[Unit] = args match {
-          case "categorize" :: _        => categorize(client)
-          case "report" :: "week" :: _  => weekReport(client).map(println)
-          case "report" :: "month" :: _ => monthReport(client).map(println)
-          case _ =>
-            IO.raiseError(new Exception("Unknown command") with NoStackTrace)
-        }
-
-        task.map(_ => ExitCode.Success)
+        execute(command, client)
       }
     }
+  }
 
-  private def monthReport(client: YnabClient[IO]): IO[String] = {
-    val startDate = LocalDate.now().withDayOfMonth(1)
+  override def main: Opts[IO[ExitCode]] = {
+    (reportCommand
+      .orElse(categorizeCommand))
+      .map(cmd =>
+        run(cmd).handleError { case e: Throwable =>
+          e.printStackTrace()
+          ExitCode.Error
+        }
+      )
+  }
+
+  private def execute(
+      command: Command,
+      client: YnabClient[IO]
+  ): IO[ExitCode] = {
+    command match {
+      case Categorize() =>
+        categorize(client).map(_ => ExitCode.Success)
+      case Report(ReportType.Week, offset) =>
+        weekReport(client, offset).map(println).map(_ => ExitCode.Success)
+      case Report(ReportType.Month, offset) =>
+        monthReport(client, offset).map(println).map(_ => ExitCode.Success)
+      case Retry(upTo) =>
+        retry(client, upTo).map(println).map(_ => ExitCode.Success)
+      case _ =>
+        IO.raiseError(new Exception("Unknown command") with NoStackTrace)
+    }
+  }
+
+  private def monthReport(client: YnabClient[IO], offset: Int): IO[String] = {
+    val startDate = LocalDate.now().withDayOfMonth(1).minusMonths(offset)
+    pprint.pprintln(startDate)
 
     for {
       transactions <- client.getTransactions(
@@ -63,8 +110,12 @@ object Main extends IOApp {
     }
   }
 
-  private[budget] def weekReport(client: YnabClient[IO]): IO[String] = {
-    val now = LocalDate.now()
+  private[budget] def weekReport(
+      client: YnabClient[IO],
+      offset: Int
+  ): IO[String] = {
+    val now = LocalDate.now().minusWeeks(offset)
+    pprint.pprintln(now)
     val fieldUS = WeekFields.of(Locale.US).dayOfWeek()
     val sunday = now.`with`(fieldUS, 1)
     val startDate = if (sunday == now) sunday.minusWeeks(1) else sunday
@@ -90,6 +141,8 @@ object Main extends IOApp {
         .mkString("\n")
     }
   }
+
+  private var lastUpdateAttempt: List[PatchTransaction] = Nil
 
   private def categorize(client: YnabClient[IO]): IO[Unit] = {
     val updates = for {
@@ -161,14 +214,33 @@ object Main extends IOApp {
 
     for {
       updates <- updates
-      json <- client.updateTransactions(
-        "2ceaf4e4-6da9-4761-ac79-bf6ba66c9060",
-        updates
-      )
+      json <- client
+        .updateTransactions(
+          "2ceaf4e4-6da9-4761-ac79-bf6ba66c9060",
+          updates
+        )
+        .handleErrorWith { error =>
+          lastUpdateAttempt = updates
+          IO.raiseError(error)
+        }
     } yield {
       pprint.log(json)
       println("Done")
       ExitCode.Success
+    }
+  }
+
+  private def retry(client: YnabClient[IO], upTo: Int): IO[String] = {
+    for {
+      json <- client
+        .updateTransactions(
+          "2ceaf4e4-6da9-4761-ac79-bf6ba66c9060",
+          lastUpdateAttempt.take(upTo)
+        )
+    } yield {
+      pprint.log(json)
+      println("Done")
+      "Done"
     }
   }
 }
